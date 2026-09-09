@@ -2,6 +2,7 @@
 
 ## NOTICE
 This branch supports T1 and K1. The branch supporting T2 is [support_T2](https://github.com/BoosterRobotics/robocup_demo/tree/sandbox/support_T2).
+
 Before each match, use the remote controller to press `LT + A` to switch the robot to `kSoccer` mode and complete pre-match localization. After localization succeeds, press `LT + B` to hand control over to the GameController.
 
 ## introduction

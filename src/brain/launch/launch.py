@@ -6,11 +6,23 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch_ros.actions import Node
 from launch.substitutions import LaunchConfiguration
-
+from launch_ros.substitutions import FindPackageShare
 
 def handle_configuration(context, *args, **kwargs):
-    # get launch argument 'vision_config_path' and construct paths to vision.yaml and vision_local.yaml
-    vision_config_dir = context.perform_substitution(LaunchConfiguration('vision_config_path'))
+    default_vision_config_dir = os.path.join(
+        FindPackageShare('vision').perform(context), 'config')
+    requested_vision_config_dir = context.perform_substitution(LaunchConfiguration('vision_config_path')).rstrip('/')
+    if requested_vision_config_dir:
+        if os.path.exists(os.path.join(requested_vision_config_dir, 'vision.yaml')):
+            vision_config_dir = requested_vision_config_dir
+        else:
+            print(
+                f"[brain launch] warning: {requested_vision_config_dir}/vision.yaml not found, "
+                f"fallback to {default_vision_config_dir}")
+            vision_config_dir = default_vision_config_dir
+    else:
+        vision_config_dir = default_vision_config_dir
+
     vision_config_file = os.path.join(vision_config_dir, 'vision.yaml')
     vision_config_local_file = os.path.join(vision_config_dir, 'vision_local.yaml')
 
@@ -84,8 +96,8 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument(
             'vision_config_path',
-            default_value=os.path.join(os.path.dirname(__file__), '../../../../vision/share/vision/config'),
-            description='Directory containing vision.yaml and vision_local.yaml'
+            default_value='',
+            description='Directory containing vision.yaml and vision_local.yaml (empty => use package default)'
         ),
         # Parameters that can be provided through ros2 launch brain launch.py param:=value need to be declared here using DeclareLaunchArgument, and then handled in handle_configuration
         DeclareLaunchArgument(

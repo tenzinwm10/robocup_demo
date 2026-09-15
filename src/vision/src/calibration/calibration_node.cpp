@@ -26,6 +26,7 @@
 #include "booster_vision/base/pose.h"
 #include "booster_vision/base/data_syncer.hpp"
 #include "booster_vision/base/data_logger.hpp"
+#include "booster_vision/base/camera_config.h"
 #include "booster_vision/base/misc_utils.hpp"
 #include "booster_vision/img_bridge.h"
 #include "booster_vision/calibration/optimizor.hpp"
@@ -121,8 +122,13 @@ void CalibrationNode::Init(const std::string cfg_path, bool is_offline, std::str
         std::cerr << "no camera param found here" << std::endl;
         return;
     } else {
-        color_topic_ = cfg_node_["camera"]["color_topic"].as<std::string>();
-        intrin_topic_ = cfg_node_["camera"]["intrin_topic"].as<std::string>();
+        color_topic_ = GetCameraTopic(cfg_node_["camera"], "color_topic");
+        intrin_topic_ = GetCameraTopic(cfg_node_["camera"], "intrin_topic");
+        if (color_topic_.empty() || intrin_topic_.empty()) {
+            std::cerr << "Camera topics are missing. Set camera.color_topic and camera.intrin_topic, "
+                      << "or use a supported camera.type." << std::endl;
+            return;
+        }
         intr_ = Intrinsics(cfg_node_["camera"]["intrin"]);
         p_eye2head_ = as_or<Pose>(cfg_node_["camera"]["extrin"], Pose());
     }

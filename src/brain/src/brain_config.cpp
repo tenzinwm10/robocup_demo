@@ -305,7 +305,7 @@ string BrainConfig::get_image_camera_info_topic() {
     if (robot_name.empty()) {
         robot_name = "robot0";
     }
-    return replace_all(static_cast<rclcpp::Node*>(brain)->get_parameter_or("vision.image_camera_info_topic", string("/camera/color/camera_info")), "robot0", robot_name);
+    return replace_all(static_cast<rclcpp::Node*>(brain)->get_parameter_or("vision.image_camera_info_topic", string("/boostercamera/head/rgb/camera_info")), "robot0", robot_name);
 }
 
 string BrainConfig::get_depth_image_topic() {
@@ -313,7 +313,7 @@ string BrainConfig::get_depth_image_topic() {
     if (robot_name.empty()) {
         robot_name = "robot0";
     }
-    return replace_all(static_cast<rclcpp::Node*>(brain)->get_parameter_or("vision.depth_image_topic", string("/camera/depth/image_raw")), "robot0", robot_name);
+    return replace_all(static_cast<rclcpp::Node*>(brain)->get_parameter_or("vision.depth_image_topic", string("/boostercamera/head/depth")), "robot0", robot_name);
 }
 
 string BrainConfig::get_depth_camera_info_topic() {
@@ -321,7 +321,7 @@ string BrainConfig::get_depth_camera_info_topic() {
     if (robot_name.empty()) {
         robot_name = "robot0";
     }
-    return replace_all(static_cast<rclcpp::Node*>(brain)->get_parameter_or("vision.depth_camera_info_topic", string("/camera/depth/camera_info")), "robot0", robot_name);
+    return replace_all(static_cast<rclcpp::Node*>(brain)->get_parameter_or("vision.depth_camera_info_topic", string("/boostercamera/head/depth/camera_info")), "robot0", robot_name);
 }
 
 void BrainConfig::calcMapLines() {

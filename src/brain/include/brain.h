@@ -193,7 +193,7 @@ public:
 
     void lowStateCallback(const booster_interface::msg::LowState &msg);
 
-    void headPoseCallback(const geometry_msgs::msg::Pose &msg);
+    void headPoseCallback(const geometry_msgs::msg::TransformStamped &msg);
 
     void recoveryStateCallback(const booster_interface::msg::RawBytesMsg &msg);
 
@@ -288,7 +288,7 @@ private:
     rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr depthCameraInfoSubscription;
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr depthImageSubscription;
     rclcpp::Subscription<sensor_msgs::msg::CompressedImage>::SharedPtr compressedDepthImageSubscription;
-    rclcpp::Subscription<geometry_msgs::msg::Pose>::SharedPtr headPoseSubscription;
+    rclcpp::Subscription<geometry_msgs::msg::TransformStamped>::SharedPtr headPoseSubscription;
     rclcpp::Subscription<booster_interface::msg::RawBytesMsg>::SharedPtr recoveryStateSubscription;
     rclcpp::Subscription<std_msgs::msg::String>::SharedPtr whistleDetectionSubscription;
     rclcpp::TimerBase::SharedPtr timer_;

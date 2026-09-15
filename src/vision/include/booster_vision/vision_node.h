@@ -74,7 +74,15 @@ private:
     Pose p_eye2head_;
     Pose p_headprime2head_;
     Pose p_previous_head2base_;
+    bool auto_calibrate_ = false;
+    bool auto_calibrate_pose_ready_ = false;
+    Pose p_headpoint2pitchlink_{0.0613f, 0.0f, 0.108f, 0.0f, 0.0f, 0.0f};
+    Pose p_camera_link2pitchlink_;
+    std::string auto_calibrate_robot_model_;
+    std::string auto_calibrate_camera_link_;
     float z_compensation_ = 0;
+    float x_compensation_ = 0.0f;
+    float y_compensation_ = 0.0f;
     int line_segment_area_threshold_ = 10; // threshold for line segment detection
 
     // post processing
@@ -124,8 +132,11 @@ private:
     std::shared_ptr<YoloV8Segmentor> segmentor_;
     std::shared_ptr<PoseEstimator> pose_estimator_;
     std::map<std::string, std::shared_ptr<PoseEstimator>> pose_estimator_map_;
-    
+
     YAML::Node config_node_;  // Store config for recreating pose estimators
+
+    bool InitAutoCalibrationPoseAdapter(const YAML::Node &node);
+    Pose AdaptHeadPoseForAutoCalibration(const Pose &headpoint2base) const;
 };
 
 } // namespace booster_vision

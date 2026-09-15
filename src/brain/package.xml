@@ -23,6 +23,7 @@
   <depend>booster_interface</depend>
   <depend>game_controller_interface</depend>
   <depend>vision_interface</depend>
+  <exec_depend>vision</exec_depend>
   <depend>booster_msgs</depend>
   <depend>backward_ros</depend>
   <depend>tf2</depend>

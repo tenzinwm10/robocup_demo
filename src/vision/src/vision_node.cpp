@@ -6,6 +6,11 @@
 #include <iostream>
 #include <sstream>
 #include <fstream>
+#include <array>
+#include <algorithm>
+#include <cctype>
+#include <cstdio>
+#include <regex>
 
 #include <yaml-cpp/yaml.h>
 #include "ament_index_cpp/get_package_share_directory.hpp"
@@ -16,6 +21,7 @@
 
 #include "booster_vision/base/data_syncer.hpp"
 #include "booster_vision/base/data_logger.hpp"
+#include "booster_vision/base/camera_config.h"
 #include "booster_vision/base/misc_utils.hpp"
 #include "booster_vision/model//detector.h"
 #include "booster_vision/model//segmentor.h"
@@ -23,6 +29,117 @@
 #include "booster_vision/img_bridge.h"
 
 namespace booster_vision {
+
+namespace {
+
+std::string ToLowerAscii(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return value;
+}
+
+std::string ReadTextFile(const std::filesystem::path &path) {
+    std::ifstream ifs(path);
+    if (!ifs.is_open()) {
+        return "";
+    }
+    std::ostringstream ss;
+    ss << ifs.rdbuf();
+    return ss.str();
+}
+
+std::string RunCommandCaptureStdout(const std::string &command) {
+    std::array<char, 256> buffer{};
+    std::string output;
+    FILE *pipe = popen(command.c_str(), "r");
+    if (!pipe) {
+        return output;
+    }
+    while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe) != nullptr) {
+        output += buffer.data();
+    }
+    pclose(pipe);
+    return output;
+}
+
+std::string ExtractJsonStringField(const std::string &json, const std::string &field_name) {
+    const std::regex field_regex("\"" + field_name + "\"\\s*:\\s*\"([^\"]*)\"");
+    std::smatch match;
+    if (std::regex_search(json, match, field_regex) && match.size() >= 2) {
+        return match[1].str();
+    }
+    return "";
+}
+
+bool ParseFloat3(const std::string &value, float *x, float *y, float *z) {
+    std::istringstream iss(value);
+    return static_cast<bool>(iss >> *x >> *y >> *z);
+}
+
+std::string ExtractXmlAttribute(const std::string &xml, const std::string &attr_name) {
+    const std::regex attr_regex(attr_name + "\\s*=\\s*\"([^\"]*)\"");
+    std::smatch match;
+    if (std::regex_search(xml, match, attr_regex) && match.size() >= 2) {
+        return match[1].str();
+    }
+    return "";
+}
+
+bool LoadFixedJointChildToParentPose(
+    const std::filesystem::path &urdf_path, const std::string &child_link, Pose *child2parent) {
+    const std::string urdf = ReadTextFile(urdf_path);
+    if (urdf.empty()) {
+        std::cerr << "Failed to read URDF: " << urdf_path << std::endl;
+        return false;
+    }
+
+    size_t search_pos = 0;
+    while (true) {
+        const size_t joint_start = urdf.find("<joint", search_pos);
+        if (joint_start == std::string::npos) {
+            break;
+        }
+        const size_t joint_end = urdf.find("</joint>", joint_start);
+        if (joint_end == std::string::npos) {
+            break;
+        }
+        search_pos = joint_end + std::string("</joint>").size();
+        const std::string joint_xml = urdf.substr(joint_start, search_pos - joint_start);
+        if (joint_xml.find("<child") == std::string::npos ||
+            joint_xml.find("link=\"" + child_link + "\"") == std::string::npos) {
+            continue;
+        }
+
+        const std::regex origin_regex("<origin\\b[^>]*/?>");
+        std::smatch origin_match;
+        if (!std::regex_search(joint_xml, origin_match, origin_regex)) {
+            std::cerr << "URDF joint for child link " << child_link << " has no origin." << std::endl;
+            return false;
+        }
+
+        const std::string origin_xml = origin_match[0].str();
+        float x = 0.0f, y = 0.0f, z = 0.0f;
+        float roll = 0.0f, pitch = 0.0f, yaw = 0.0f;
+        const std::string xyz = ExtractXmlAttribute(origin_xml, "xyz");
+        if (!xyz.empty() && !ParseFloat3(xyz, &x, &y, &z)) {
+            std::cerr << "Invalid xyz in URDF origin for child link " << child_link << ": " << xyz << std::endl;
+            return false;
+        }
+        const std::string rpy = ExtractXmlAttribute(origin_xml, "rpy");
+        if (!rpy.empty() && !ParseFloat3(rpy, &roll, &pitch, &yaw)) {
+            std::cerr << "Invalid rpy in URDF origin for child link " << child_link << ": " << rpy << std::endl;
+            return false;
+        }
+
+        *child2parent = Pose(x, y, z, roll, pitch, yaw);
+        return true;
+    }
+
+    std::cerr << "URDF child link not found: " << child_link << " in " << urdf_path << std::endl;
+    return false;
+}
+
+}  // namespace
 
 VisionNode::VisionNode(const std::string &node_name, const rclcpp::NodeOptions &options) :
     rclcpp::Node(node_name, options) {
@@ -56,7 +173,6 @@ void VisionNode::Init(const std::string &cfg_template_path, const std::string &c
         // merge input cfg to template cfg
         MergeYAML(node, cfg_node);
     }
-
     std::cout << "loaded file: " << std::endl
               << node << std::endl;
 
@@ -121,24 +237,44 @@ void VisionNode::Init(const std::string &cfg_template_path, const std::string &c
     } else {
         if (color_topic_.empty())
         {
-            color_topic_ = node["camera"]["color_topic"].as<std::string>();
+            color_topic_ = GetCameraTopic(node["camera"], "color_topic");
         }
         if (intrin_topic_.empty())
         {
-            intrin_topic_ = node["camera"]["intrin_topic"].as<std::string>();
+            intrin_topic_ = GetCameraTopic(node["camera"], "intrin_topic");
         }
         if (depth_topic_.empty())
         {
-            depth_topic_ = node["camera"]["depth_topic"].as<std::string>();
+            depth_topic_ = GetCameraTopic(node["camera"], "depth_topic");
+        }
+        if (color_topic_.empty() || intrin_topic_.empty()) {
+            RCLCPP_ERROR(
+                get_logger(),
+                "Camera topics are missing. Set camera.color_topic and camera.intrin_topic, "
+                "or use a supported camera.type.");
+            return;
         }
         intr_ = Intrinsics(node["camera"]["intrin"]);
+        // Legacy files contain the complete optical-to-head transform. Auto
+        // calibration files contain the residual transform after the nominal
+        // camera-link pose is recovered from /head_pose and the robot URDF.
         p_eye2head_ = as_or<Pose>(node["camera"]["extrin"], Pose());
 
         float pitch_comp = as_or<float>(node["camera"]["pitch_compensation"], 0.0);
         float yaw_comp = as_or<float>(node["camera"]["yaw_compensation"], 0.0);
         float z_comp = as_or<float>(node["camera"]["z_compensation"], 0.0);
+        x_compensation_ = as_or<float>(node["camera"]["x_compensation"], 0.0f);
+        y_compensation_ = as_or<float>(node["camera"]["y_compensation"], 0.0f);
 
         p_headprime2head_ = Pose(0, 0, z_comp, 0, pitch_comp * M_PI / 180, yaw_comp * M_PI / 180);
+        std::cout << "x_compensation: " << x_compensation_ << "m" << std::endl;
+        std::cout << "y_compensation: " << y_compensation_ << "m" << std::endl;
+    }
+    if (!InitAutoCalibrationPoseAdapter(node)) {
+        RCLCPP_ERROR(
+            get_logger(),
+            "Automatic calibration is enabled, but the robot/camera pose adapter could not be initialized.");
+        return;
     }
 
     // init detector
@@ -179,11 +315,19 @@ void VisionNode::Init(const std::string &cfg_template_path, const std::string &c
 
     // init data_syncer
     use_depth_ = as_or<bool>(node["use_depth"], false);
+    if (use_depth_ && depth_topic_.empty()) {
+        RCLCPP_ERROR(
+            get_logger(),
+            "Depth is enabled but camera.depth_topic is missing. Set it explicitly or use a supported camera.type.");
+        return;
+    }
     data_syncer_ = std::make_shared<DataSyncer>(use_depth_);
     bool save_data_nonstationary = as_or<bool>(node["misc"]["save_data_nonstationary"], true);
     std::string log_root = std::string(std::getenv("HOME")) + "/Workspace/vision_log/" + getTimeString();
     data_logger_ = save_data_ ? std::make_shared<DataLogger>(log_root, save_data_nonstationary) : nullptr;
-    data_logger_->LogYAML(node, "vision_local.yaml");
+    if (data_logger_) {
+        data_logger_->LogYAML(node, "vision_local.yaml");
+    }
     seg_data_syncer_ = std::make_shared<DataSyncer>(false);
 
 
@@ -387,6 +531,14 @@ void VisionNode::ProcessData(SyncedDataBlock &synced_data, vision_interface::msg
         filtered_detections = detections;
     }
 
+    auto apply_measurement_compensation = [this](std::vector<float> position) {
+        if (position.size() >= 2) {
+            position[0] += x_compensation_;
+            position[1] += y_compensation_;
+        }
+        return position;
+    };
+
     std::vector<booster_vision::DetectionRes> detections_for_display;
     for (auto &detection : filtered_detections) {
         vision_interface::msg::DetectedObject detection_obj;
@@ -402,8 +554,8 @@ void VisionNode::ProcessData(SyncedDataBlock &synced_data, vision_interface::msg
             std::cout << "filtered out ball detection by depth" << std::endl;
             continue;
         }
-        detection_obj.position_projection = pose_obj_by_color.getTranslationVec();
-        detection_obj.position = pose_obj_by_depth.getTranslationVec();
+        detection_obj.position_projection = apply_measurement_compensation(pose_obj_by_color.getTranslationVec());
+        detection_obj.position = apply_measurement_compensation(pose_obj_by_depth.getTranslationVec());
 
         auto xyz = p_head2base.getTranslationVec();
         auto rpy = p_head2base.getEulerAnglesVec();
@@ -734,6 +886,112 @@ void VisionNode::PoseTFCallBack(const geometry_msgs::msg::TransformStamped::Shar
     seg_data_syncer_->AddPose(PoseDataBlock(Pose(*msg), timestamp));
 }
 
+bool VisionNode::InitAutoCalibrationPoseAdapter(const YAML::Node &node) {
+    auto_calibrate_ = as_or<bool>(node["calibration"]["auto_calibrate"], false);
+    auto_calibrate_pose_ready_ = false;
+    if (!auto_calibrate_) {
+        std::cout << "auto_calibrate: false" << std::endl;
+        return true;
+    }
+
+    // Offline input already carries the adapted transform published by Vision.
+    if (offline_mode_) {
+        p_headprime2head_ = Pose();
+        auto_calibrate_pose_ready_ = true;
+        std::cout << "auto_calibrate: true (offline transform input)" << std::endl;
+        return true;
+    }
+
+    std::string robot_info = RunCommandCaptureStdout("LD_LIBRARY_PATH='' booster-cli robot_info");
+    auto_calibrate_robot_model_ = ExtractJsonStringField(robot_info, "Model");
+    if (auto_calibrate_robot_model_.empty()) {
+        robot_info = RunCommandCaptureStdout("booster-cli robot_info");
+        auto_calibrate_robot_model_ = ExtractJsonStringField(robot_info, "Model");
+    }
+    const std::string robot_model_lower = ToLowerAscii(auto_calibrate_robot_model_);
+
+    std::string urdf_name;
+    if (robot_model_lower.find("k1") != std::string::npos) {
+        urdf_name = "K1_22dof.urdf";
+    } else if (robot_model_lower.find("t1") != std::string::npos) {
+        urdf_name = "T1_23dof.urdf";
+    } else {
+        std::cerr << "auto_calibrate enabled, but unsupported robot Model from booster-cli robot_info: "
+                  << auto_calibrate_robot_model_ << std::endl;
+        return false;
+    }
+
+    const std::string perception_info = ReadTextFile("/opt/booster/perception_info.yaml");
+    const std::string perception_info_lower = ToLowerAscii(perception_info);
+    const std::string configured_camera_type =
+        ToLowerAscii(as_or<std::string>(node["camera"]["type"], ""));
+
+    // The robot image contains the authoritative perception backend when it is
+    // available. An explicit camera.type is only a fallback because the unified
+    // Booster topics do not identify the physical camera.
+    if (perception_info_lower.find("realsense") != std::string::npos) {
+        auto_calibrate_camera_link_ = "head_realsense_rgb_link";
+    } else if (perception_info_lower.find("boostermipi") != std::string::npos ||
+               perception_info_lower.find("booster_mipi") != std::string::npos ||
+               perception_info_lower.find("d-robotics") != std::string::npos ||
+               perception_info_lower.find("drobotics") != std::string::npos) {
+        auto_calibrate_camera_link_ = "head_booster_stereo_rgb_link";
+    } else if (configured_camera_type.find("realsense") != std::string::npos) {
+        auto_calibrate_camera_link_ = "head_realsense_rgb_link";
+    } else if (configured_camera_type.find("boostermipi") != std::string::npos ||
+               configured_camera_type.find("booster_mipi") != std::string::npos ||
+               configured_camera_type.find("d-robotics") != std::string::npos ||
+               configured_camera_type.find("drobotics") != std::string::npos) {
+        auto_calibrate_camera_link_ = "head_booster_stereo_rgb_link";
+    } else {
+        std::cerr << "auto_calibrate enabled, but camera type is missing or unsupported in "
+                  << "/opt/booster/perception_info.yaml and camera.type." << std::endl;
+        return false;
+    }
+
+    if (robot_model_lower.find("t1") != std::string::npos &&
+        auto_calibrate_camera_link_ == "head_booster_stereo_rgb_link") {
+        std::cerr << "auto_calibrate enabled, but T1 only supports head_realsense_rgb_link." << std::endl;
+        return false;
+    }
+
+    std::filesystem::path urdf_path;
+    try {
+        const std::string package_path = ament_index_cpp::get_package_share_directory("vision");
+        urdf_path = std::filesystem::path(package_path) / "config" / urdf_name;
+    } catch (const std::exception &e) {
+        std::cerr << "Failed to locate vision package share directory: " << e.what() << std::endl;
+    }
+    if (!std::filesystem::exists(urdf_path)) {
+        const std::filesystem::path local_urdf_path = std::filesystem::path("config") / urdf_name;
+        if (std::filesystem::exists(local_urdf_path)) {
+            urdf_path = local_urdf_path;
+        }
+    }
+
+    if (!LoadFixedJointChildToParentPose(urdf_path, auto_calibrate_camera_link_, &p_camera_link2pitchlink_)) {
+        return false;
+    }
+
+    p_headprime2head_ = Pose();
+    auto_calibrate_pose_ready_ = true;
+    std::cout << "auto_calibrate: true"
+              << ", robot_model: " << auto_calibrate_robot_model_
+              << ", urdf: " << urdf_path
+              << ", camera_link: " << auto_calibrate_camera_link_
+              << std::endl;
+    std::cout << "auto_calibrate headpoint2pitchlink: " << p_headpoint2pitchlink_ << std::endl;
+    std::cout << "auto_calibrate camera_link2pitchlink: " << p_camera_link2pitchlink_ << std::endl;
+    return true;
+}
+
+Pose VisionNode::AdaptHeadPoseForAutoCalibration(const Pose &headpoint2base) const {
+    if (!auto_calibrate_pose_ready_) {
+        return headpoint2base;
+    }
+    return headpoint2base * p_headpoint2pitchlink_.inverse() * p_camera_link2pitchlink_;
+}
+
 void VisionNode::PoseCallBack(const geometry_msgs::msg::Pose::SharedPtr msg) {
     auto current_time = this->get_clock()->now();
     double timestamp = static_cast<double>(current_time.nanoseconds()) * 1e-9;
@@ -745,7 +1003,7 @@ void VisionNode::PoseCallBack(const geometry_msgs::msg::Pose::SharedPtr msg) {
     float qy = msg->orientation.y;
     float qz = msg->orientation.z;
     float qw = msg->orientation.w;
-    auto pose = Pose(x, y, z, qx, qy, qz, qw);
+    auto pose = AdaptHeadPoseForAutoCalibration(Pose(x, y, z, qx, qy, qz, qw));
     data_syncer_->AddPose(PoseDataBlock(pose, timestamp));
     seg_data_syncer_->AddPose(PoseDataBlock(pose, timestamp));
 
@@ -760,6 +1018,9 @@ void VisionNode::PoseCallBack(const geometry_msgs::msg::Pose::SharedPtr msg) {
 }
 
 void VisionNode::CalParamCallback(const vision_interface::msg::CalParam::SharedPtr msg) {
+    if (auto_calibrate_pose_ready_) {
+        return;
+    }
     float pitch_comp = msg->pitch_compensation;
     float yaw_comp = msg->yaw_compensation;
     float z_comp = msg->z_compensation;

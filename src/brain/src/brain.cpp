@@ -1,4 +1,5 @@
 #include <iostream>
+#include <cmath>
 #include <string>
 #include <fstream> 
 #include <yaml-cpp/yaml.h>
@@ -169,9 +170,9 @@ Brain::Brain() : rclcpp::Node("brain_node")
     declare_parameter<bool>("enable_com", true);
     declare_parameter<double>("team_comm_frequency_hz", 2.0);
 
-    declare_parameter<string>("vision.image_camera_info_topic", "/camera/color/camera_info");
-    declare_parameter<string>("vision.depth_image_topic", "/camera/camera/aligned_depth_to_color/image_raw");
-    declare_parameter<string>("vision.depth_camera_info_topic", "/camera/depth/camera_info");
+    declare_parameter<string>("vision.image_camera_info_topic", "/boostercamera/head/rgb/camera_info");
+    declare_parameter<string>("vision.depth_image_topic", "/boostercamera/head/depth");
+    declare_parameter<string>("vision.depth_camera_info_topic", "/boostercamera/head/depth/camera_info");
 
 
     declare_parameter<string>("game_control_ip", "0.0.0.0");
@@ -237,7 +238,10 @@ void Brain::init()
     subFieldLine = create_subscription<vision_interface::msg::LineSegments>("/booster_soccer/line_segments" + topic_suffix, SUB_STATE_QUEUE_SIZE, bind(&Brain::fieldLineCallback, this, _1));
     odometerSubscription = create_subscription<booster_interface::msg::Odometer>("/odometer_state" + topic_suffix,  SUB_STATE_QUEUE_SIZE, bind(&Brain::odometerCallback, this, _1));
     lowStateSubscription = create_subscription<booster_interface::msg::LowState>("/low_state" + topic_suffix, SUB_STATE_QUEUE_SIZE, bind(&Brain::lowStateCallback, this, _1));
-    headPoseSubscription = create_subscription<geometry_msgs::msg::Pose>("/head_pose" + topic_suffix, SUB_STATE_QUEUE_SIZE, bind(&Brain::headPoseCallback, this, _1));
+    headPoseSubscription = create_subscription<geometry_msgs::msg::TransformStamped>(
+        "/booster_soccer/t_head2base" + topic_suffix,
+        SUB_STATE_QUEUE_SIZE,
+        bind(&Brain::headPoseCallback, this, _1));
     recoveryStateSubscription = create_subscription<booster_interface::msg::RawBytesMsg>("fall_down_recovery_state" + topic_suffix, SUB_STATE_QUEUE_SIZE, bind(&Brain::recoveryStateCallback, this, _1));
     whistleDetectionSubscription = create_subscription<std_msgs::msg::String>("/whistle_detected", SUB_STATE_QUEUE_SIZE, bind(&Brain::whistleDetectionCallback, this, _1));
 
@@ -332,6 +336,7 @@ void Brain::loadConfig()
             config->camToHead(i, j) = extrin[i][j].as<double>();
         }
     }
+
     string str_cam2head = "camToHead: \n";
     for (int i = 0; i < 4; ++i) {
         for (int j = 0; j < 4; ++j) {
@@ -2154,28 +2159,26 @@ void Brain::depthCameraInfoCallback(const sensor_msgs::msg::CameraInfo::SharedPt
     config->depthCameraFovY = 2.0 * atan(h / (2.0 * config->depthCameraFy));
 }
 
-void Brain::headPoseCallback(const geometry_msgs::msg::Pose& msg)
+void Brain::headPoseCallback(const geometry_msgs::msg::TransformStamped &msg)
 {
-    // Calculate head_to_base matrix
+    // Vision publishes the raw head pose for legacy calibration and the
+    // URDF-adapted nominal camera pose for automatic calibration.
     Eigen::Matrix4d headToBase = Eigen::Matrix4d::Identity();
-    
-    // Get rotation matrix from quaternion
+
     Eigen::Quaterniond q(
-        msg.orientation.w,
-        msg.orientation.x,
-        msg.orientation.y,
-        msg.orientation.z
+        msg.transform.rotation.w,
+        msg.transform.rotation.x,
+        msg.transform.rotation.y,
+        msg.transform.rotation.z
     );
     headToBase.block<3,3>(0,0) = q.toRotationMatrix();
-    
-    // Set translation vector
+
     headToBase.block<3,1>(0,3) = Eigen::Vector3d(
-        msg.position.x,
-        msg.position.y,
-        msg.position.z
+        msg.transform.translation.x,
+        msg.transform.translation.y,
+        msg.transform.translation.z
     );
 
-    // Calculate cam_to_base matrix and store it
     data->camToRobot = headToBase * config->camToHead;
 }
 

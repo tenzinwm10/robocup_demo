@@ -9,7 +9,7 @@ def handle_configuration(context, *args, **kwargs):
     default_config_path = PathJoinSubstitution([FindPackageShare('vision'), 'config']).perform(context)
 
     user_cfg_dir = LaunchConfiguration('vision_config_path').perform(context)
-    config_path = default_config_path  
+    config_path = default_config_path
     if user_cfg_dir and user_cfg_dir.strip():
         cand = user_cfg_dir.rstrip('/')
         if os.path.exists(os.path.join(cand, 'vision.yaml')):
@@ -18,7 +18,6 @@ def handle_configuration(context, *args, **kwargs):
             print(f"[vision launch] warning: {cand}/vision.yaml not found, fallback to {default_config_path}")
     config_file = os.path.join(config_path, 'vision.yaml')
     config_local_file = os.path.join(config_path, 'vision_local.yaml')
-    config_user_file = os.path.join(os.path.expanduser('~'), 'agents/booster_soccer/vision.yaml')
 
 
     show_det = LaunchConfiguration('show_det')
@@ -40,7 +39,7 @@ def handle_configuration(context, *args, **kwargs):
             executable='vision_node',
             name='vision_node',
             output='screen',
-            arguments=[config_file, config_local_file, config_user_file],
+            arguments=[config_file, config_local_file],
             parameters=[{
                 'offline_mode': offline_mode,
                 'show_det': show_det,

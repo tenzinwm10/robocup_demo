@@ -10,6 +10,7 @@ source ./install/setup.bash
 #export FASTRTPS_DEFAULT_PROFILES_FILE=/opt/booster/BoosterRos2/fastdds_profile_udp_only.xml
 
 ros2 daemon stop
-ros2 daemon start
+# ros2 daemon start
 
-ros2 launch vision launch.py sim:=true "$@"
+# ros2 launch vision launch.py sim:=true "$@"
+ros2 launch vision launch.py vision_config_path:=/opt/booster show_det:=false save_data:=false

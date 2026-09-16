@@ -9,7 +9,10 @@
 #include <array>
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdio>
+#include <iomanip>
+#include <limits>
 #include <regex>
 
 #include <yaml-cpp/yaml.h>
@@ -540,6 +543,11 @@ void VisionNode::ProcessData(SyncedDataBlock &synced_data, vision_interface::msg
     };
 
     std::vector<booster_vision::DetectionRes> detections_for_display;
+    std::vector<cv::Point2f> detection_xy_for_display;
+    if (show_det_) {
+        detections_for_display.reserve(filtered_detections.size());
+        detection_xy_for_display.reserve(filtered_detections.size());
+    }
     for (auto &detection : filtered_detections) {
         vision_interface::msg::DetectedObject detection_obj;
 
@@ -579,7 +587,17 @@ void VisionNode::ProcessData(SyncedDataBlock &synced_data, vision_interface::msg
 
         // publish detection
         detection_msg.detected_objects.push_back(detection_obj);
-        detections_for_display.push_back(detection);
+        if (show_det_) {
+            detections_for_display.push_back(detection);
+            if (detection_obj.position_projection.size() >= 2) {
+                detection_xy_for_display.emplace_back(
+                    detection_obj.position_projection[0],
+                    detection_obj.position_projection[1]);
+            } else {
+                const float nan_value = std::numeric_limits<float>::quiet_NaN();
+                detection_xy_for_display.emplace_back(nan_value, nan_value);
+            }
+        }
     }
 
     // compute corner points positision
@@ -617,6 +635,39 @@ void VisionNode::ProcessData(SyncedDataBlock &synced_data, vision_interface::msg
         cv::Mat color_rgb;
         cv::cvtColor(color, color_rgb, cv::COLOR_BGR2RGB);
         cv::Mat img_out = YoloV8Detector::DrawDetection(color_rgb, detections_for_display);
+        const size_t draw_count = std::min(
+            detections_for_display.size(), detection_xy_for_display.size());
+        for (size_t i = 0; i < draw_count; ++i) {
+            const auto &xy = detection_xy_for_display[i];
+            if (!std::isfinite(xy.x) || !std::isfinite(xy.y)) {
+                continue;
+            }
+
+            const auto &bbox = detections_for_display[i].bbox;
+            std::ostringstream oss;
+            oss << std::fixed << std::setprecision(2)
+                << "x:" << xy.x << " y:" << xy.y;
+            const std::string text = oss.str();
+
+            int baseline = 0;
+            const cv::Size text_size = cv::getTextSize(
+                text, cv::FONT_HERSHEY_SIMPLEX, 0.45, 1, &baseline);
+            int text_x = std::max(0, bbox.x);
+            int text_y = bbox.y + bbox.height + text_size.height + 2;
+            if (text_y >= img_out.rows) {
+                text_y = std::max(text_size.height + 2, bbox.y - 4);
+            }
+            if (text_x + text_size.width >= img_out.cols) {
+                text_x = std::max(0, img_out.cols - text_size.width - 1);
+            }
+
+            cv::putText(img_out, text, cv::Point(text_x, text_y),
+                        cv::FONT_HERSHEY_SIMPLEX, 0.45,
+                        cv::Scalar(0, 0, 0), 2, cv::LINE_AA);
+            cv::putText(img_out, text, cv::Point(text_x, text_y),
+                        cv::FONT_HERSHEY_SIMPLEX, 0.45,
+                        cv::Scalar(255, 255, 0), 1, cv::LINE_AA);
+        }
         cv::imshow("Detection", img_out);
 
         // color jet depth_float and show

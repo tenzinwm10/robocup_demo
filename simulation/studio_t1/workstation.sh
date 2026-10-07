@@ -80,7 +80,7 @@ case "$command" in
   match-start|match-end)
     action="${command#match-}"
     if [[ "$action" == start ]]; then
-      docker exec "$TASK_CONTAINER" python3 /source/simulation/studio_t1/check_health.py
+      docker exec "$TASK_CONTAINER" python3 /source/simulation/studio_t1/check_health.py --wait-timeout 60
     fi
     docker exec "$STUDIO_CONTAINER" curl -fsS --max-time 10 -X POST "http://127.0.0.1:38383/match/$action"
     ;;
@@ -129,7 +129,7 @@ case "$command" in
     remove_owned "$UI_CONTAINER" robocup-communications-ui
     ;;
   ready)
-    docker exec "$TASK_CONTAINER" python3 /source/simulation/studio_t1/check_health.py "$@"
+    docker exec "$TASK_CONTAINER" python3 /source/simulation/studio_t1/check_health.py --wait-timeout 60 "$@"
     ;;
   status)
     docker exec "$STUDIO_CONTAINER" curl -fsS --max-time 5 http://127.0.0.1:38383/health

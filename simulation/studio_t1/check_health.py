@@ -114,30 +114,46 @@ def health_failures(run, reports, now=None, max_age=DEFAULT_MAX_AGE):
     return failures
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--logs', type=Path, default=Path('/work/studio-logs'))
-    parser.add_argument('--max-age', type=float, default=DEFAULT_MAX_AGE,
-                        help=f'maximum input and native-RPC age in wall seconds (default: {DEFAULT_MAX_AGE:g})')
-    args = parser.parse_args()
-    if not math.isfinite(args.max_age) or args.max_age <= 0:
-        parser.error('--max-age must be finite and positive')
+def check_logs(logs, max_age=DEFAULT_MAX_AGE):
+    """Read the current startup evidence; incomplete files are not acceptance."""
     try:
-        run = json.loads((args.logs/'run.json').read_text())
+        run = json.loads((logs/'run.json').read_text())
     except (OSError, ValueError) as error:
-        raise SystemExit(f'Run manifest unavailable: {error}')
+        return None, [f'Run manifest unavailable: {error}']
     reports = {}
     if isinstance(run, dict) and isinstance(run.get('robots'), list):
         for robot in run['robots']:
             if not isinstance(robot, str) or robot not in {f'robot{i}' for i in range(1, 7)}:
                 continue
             try:
-                reports[robot] = json.loads((args.logs/f'{robot}-transport.json').read_text())
+                reports[robot] = json.loads((logs/f'{robot}-transport.json').read_text())
             except (OSError, ValueError):
                 reports[robot] = None
-    failures = health_failures(run, reports, max_age=args.max_age)
-    if failures:
-        raise SystemExit('\n'.join(failures))
+    return run, health_failures(run, reports, max_age=max_age)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--logs', type=Path, default=Path('/work/studio-logs'))
+    parser.add_argument('--max-age', type=float, default=DEFAULT_MAX_AGE,
+                        help=f'maximum input and native-RPC age in wall seconds (default: {DEFAULT_MAX_AGE:g})')
+    parser.add_argument('--wait-timeout', type=float, default=0,
+                        help='wait up to this many wall seconds for all readiness gates (default: 0)')
+    args = parser.parse_args()
+    if not math.isfinite(args.max_age) or args.max_age <= 0:
+        parser.error('--max-age must be finite and positive')
+    if not math.isfinite(args.wait_timeout) or args.wait_timeout < 0:
+        parser.error('--wait-timeout must be finite and nonnegative')
+    deadline = time.monotonic() + args.wait_timeout
+    while True:
+        run, failures = check_logs(args.logs, max_age=args.max_age)
+        if not failures:
+            break
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            prefix = f'Readiness timed out after {args.wait_timeout:g}s:\n' if args.wait_timeout else ''
+            raise SystemExit(prefix + '\n'.join(failures))
+        time.sleep(min(0.25, remaining))
     print(f"PASS: live camera/depth, perception, head/state, referee, advancing clock "
           f"and successful native RPC streams for {run['robots']}")
 

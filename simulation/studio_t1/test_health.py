@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from types import SimpleNamespace
 import unittest
@@ -149,6 +150,74 @@ class HealthTests(unittest.TestCase):
             self.assertNotEqual(malformed.returncode, 0)
             self.assertIn('invalid transport report', malformed.stderr)
             self.assertNotIn('Traceback', malformed.stderr)
+
+    def cli_fixture(self):
+        now = time.time()
+        run = dict(self.run, started_at=now-1)
+        report = copy.deepcopy(self.report)
+        report['updated_at'] = now
+        report['last_received_at'] = {topic: now for topic in report['last_received_at']}
+        report['clock']['last_advanced_at'] = now
+        report['last_successful_rpc']['received_at'] = now
+        return run, report
+
+    def test_cli_wait_accepts_late_complete_evidence(self):
+        script = str(Path(__file__).with_name('check_health.py'))
+        with tempfile.TemporaryDirectory() as directory:
+            logs = Path(directory)
+            # Both the manifest and the adapter can appear after docker start returns.
+            def publish_late():
+                time.sleep(0.15)
+                run, report = self.cli_fixture()
+                (logs/'run.json').write_text(json.dumps(run))
+                time.sleep(0.15)
+                (logs/'robot2-transport.json').write_text(json.dumps(report))
+            writer = threading.Thread(target=publish_late)
+            writer.start()
+            try:
+                result = subprocess.run([sys.executable, script, '--logs', directory, '--wait-timeout', '2'],
+                                        capture_output=True, text=True, timeout=5)
+            finally:
+                writer.join()
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('PASS:', result.stdout)
+
+    def test_cli_timeout_reports_final_unmet_gate_without_accepting_partial_evidence(self):
+        script = str(Path(__file__).with_name('check_health.py'))
+        with tempfile.TemporaryDirectory() as directory:
+            logs = Path(directory)
+            def publish_partial():
+                time.sleep(0.1)
+                run, report = self.cli_fixture()
+                report['received'].pop('/robot2/rgbd_camera/depth/image_raw')
+                (logs/'run.json').write_text(json.dumps(run))
+                (logs/'robot2-transport.json').write_text(json.dumps(report))
+            writer = threading.Thread(target=publish_partial)
+            writer.start()
+            started = time.monotonic()
+            try:
+                result = subprocess.run([sys.executable, script, '--logs', directory, '--wait-timeout', '0.35'],
+                                        capture_output=True, text=True, timeout=5)
+            finally:
+                writer.join()
+            self.assertGreaterEqual(time.monotonic()-started, 0.35)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('Readiness timed out after 0.35s', result.stderr)
+            self.assertIn('robot2: missing depth', result.stderr)
+            self.assertNotIn('Run manifest unavailable', result.stderr)
+            self.assertNotIn('PASS:', result.stdout)
+
+    def test_cli_rejects_nonfinite_or_invalid_time_limits(self):
+        script = str(Path(__file__).with_name('check_health.py'))
+        for option, values, message in (
+                ('--wait-timeout', ('-1', 'nan', 'inf', '-inf'), 'finite and nonnegative'),
+                ('--max-age', ('0', '-1', 'nan', 'inf', '-inf'), 'finite and positive')):
+            for value in values:
+                with self.subTest(option=option, value=value):
+                    result = subprocess.run([sys.executable, script, f'{option}={value}'],
+                                            capture_output=True, text=True, timeout=5)
+                    self.assertEqual(result.returncode, 2)
+                    self.assertIn(message, result.stderr)
 
 
 if __name__ == '__main__':

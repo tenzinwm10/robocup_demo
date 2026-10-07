@@ -60,7 +60,8 @@ separate diagnostic topic. `--perception external --localization ideal` tests
 real perception with exact localization. `--perception ideal --localization visual`
 tests localization against Studio's ideal object/line observations.
 
-Use `bash workstation.sh ready` before a match. The updated readiness gate
+Use `bash workstation.sh ready` before a match. It waits up to 60 wall seconds
+for asynchronous controller, adapter and sensor initialization. The readiness gate
 checks required stream receipt ages, depth, advancing simulation clock and
 successful correlated native RPC replies. `match-start` runs the same gate.
 For visual localization, also inspect the brain's calibrated pose and compare

@@ -1,0 +1,43 @@
+brain_node:
+  ros__parameters:
+    use_sim_time: true
+    simulation.studio_localization: true
+    tree_file_path: /source/src/brain/behavior_trees/game.xml
+    vision_config_path: /source/simulation/studio_t1/vision.yaml
+    vision_config_local_path: /source/simulation/studio_t1/vision.yaml
+    game:
+      team_id: 1
+      player_id: 1
+      player_role: striker
+      initial_goalkeeper_id: 0
+      number_of_players: 3
+      field_type: adult_size
+    robot:
+      robot_height: 1.12
+      odom_factor: 1.0
+      vx_factor: 1.0
+      vx_limit: 0.9
+      vy_limit: 0.4
+      vtheta_limit: 1.0
+      min_vx: 0.0
+      min_vy: 0.0
+      min_vtheta: 0.0
+    strategy:
+      enable_auto_visual_kick: false
+      cooperation:
+        enable_role_switch: false
+    enable_com: false
+    sound.enable: false
+    rerunLog:
+      enable_file: false
+      enable_tcp: false
+    obstacle_avoidance.log_enable: false
+    vision:
+      depth_image_topic: /rgbd_camera/depth/image_raw
+      camera_info_topic: /rgbd_camera/rgb/camera_info
+      head_pose_topic: /studio/head_pose_stamped
+      cam_pixel_width: 320.0
+      cam_pixel_height: 240.0
+      cam_fov_x: 72.95
+      cam_fov_y: 58.0
+    game_control_ip: 127.0.0.1

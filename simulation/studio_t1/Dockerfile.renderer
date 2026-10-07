@@ -1,0 +1,15 @@
+FROM robocup-t2-studio:workstation
+USER root
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    python3-venv libegl1 libgles2 libgl1 libgl1-mesa-dri && rm -rf /var/lib/apt/lists/*
+RUN python3 -m venv --system-site-packages /opt/renderer && /opt/renderer/bin/pip install \
+    mujoco==3.10.0 PyOpenGL==3.1.10 websockets==15.0.1 msgpack==1.1.2 \
+    Pillow==11.3.0 pydantic==2.11.9 numpy==1.26.4 zopfli==0.2.3.post1
+# Scene loading uses a snapshot of the installed Studio runtime, not another physics engine.
+COPY simulation/studio_t1/runtime_support /usr/local/booster_robot/booster_robocup_sim
+COPY simulation/studio_t1/render_cameras.py /source/simulation/studio_t1/render_cameras.py
+COPY simulation/studio_t1/test_camera_stream.py /source/simulation/studio_t1/test_camera_stream.py
+ENV MUJOCO_GL=egl
+ENV NVIDIA_VISIBLE_DEVICES=all
+ENV NVIDIA_DRIVER_CAPABILITIES=graphics,compute,utility
+ENTRYPOINT ["/bin/bash", "-lc", "source /opt/ros/kilted/setup.bash; exec /opt/renderer/bin/python /source/simulation/studio_t1/render_cameras.py \"$@\"", "_"]

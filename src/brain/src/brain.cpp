@@ -704,6 +704,7 @@ Brain::Brain() : rclcpp::Node("brain_node")
     declare_parameter<double>("locator.max_residual", 0.3);
 
     declare_parameter<bool>("enable_com", false);
+    declare_parameter<bool>("simulation.studio_localization", false);
     declare_parameter<double>("communication.team_broadcast_rate_hz", 20.0);
     declare_parameter<string>(
         "communication.discovery_address", "auto");
@@ -864,6 +865,22 @@ void Brain::init()
     headPoseStampedSubscription = create_subscription<geometry_msgs::msg::PoseStamped>(
         headPoseTopic, rclcpp::QoS(rclcpp::KeepLast(10)).best_effort(),
         bind(&Brain::headPoseStampedCallback, this, _1));
+    if (get_parameter("simulation.studio_localization").as_bool()) {
+        if (!get_parameter("use_sim_time").as_bool()) {
+            throw std::runtime_error("Studio localization requires use_sim_time=true");
+        }
+        studioPoseSubscription = create_subscription<geometry_msgs::msg::Pose2D>(
+            "/soccer/sim/localization/robot_pose", rclcpp::SensorDataQoS(),
+            [this](const geometry_msgs::msg::Pose2D &pose) {
+                if (!std::isfinite(pose.x) || !std::isfinite(pose.y) ||
+                    !std::isfinite(pose.theta)) return;
+                calibrateOdom(pose.x, pose.y, pose.theta, "StudioSimulation");
+                if (!isRecoveryLocalizationBlocked()) {
+                    tree->setEntry<bool>("odom_calibrated", true);
+                    data->lastSuccessfulLocalizeTime = get_clock()->now();
+                }
+            });
+    }
     recoveryStateSubscription = create_subscription<booster_interface::msg::RawBytesMsg>("fall_down_recovery_state", SUB_STATE_QUEUE_SIZE, bind(&Brain::recoveryStateCallback, this, _1));
 
     if (config->rerunLogEnableFile || config->rerunLogEnableTCP) {

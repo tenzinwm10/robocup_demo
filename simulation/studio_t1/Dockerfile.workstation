@@ -1,0 +1,8 @@
+# Export this image for tomorrow: no machine-local base is needed after docker load.
+FROM robocup-t1-demo:multi
+COPY src /source/src
+COPY simulation/studio_t1 /source/simulation/studio_t1
+COPY README.md /source/README.md
+ENV FASTDDS_DEFAULT_PROFILES_FILE=/source/simulation/studio_t1/fastdds.xml
+ENV PYTHONFAULTHANDLER=1
+ENTRYPOINT ["/bin/bash", "/source/simulation/studio_t1/start_multi.sh"]

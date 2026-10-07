@@ -1,0 +1,9 @@
+.git
+**/__pycache__
+simulation/studio_t1/logs
+simulation/studio_t1/models
+simulation/studio_t1/scenes
+simulation/studio_t1/handoff
+build
+install
+log

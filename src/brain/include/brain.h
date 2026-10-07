@@ -15,6 +15,7 @@
 #include <sensor_msgs/msg/image.hpp>
 #include <geometry_msgs/msg/pose.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
+#include <geometry_msgs/msg/pose2_d.hpp>
 #include <vision_interface/msg/detections.hpp>
 #include <vision_interface/msg/line_segments.hpp>
 #include <vision_interface/msg/cal_param.hpp>
@@ -455,6 +456,7 @@ private:
     rclcpp::Subscription<vision_interface::msg::SegmentationResult>::SharedPtr segmentationResultSubscription;
     rclcpp::Subscription<geometry_msgs::msg::Pose>::SharedPtr headPoseSubscription;
     rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr headPoseStampedSubscription;
+    rclcpp::Subscription<geometry_msgs::msg::Pose2D>::SharedPtr studioPoseSubscription;
     rclcpp::Subscription<booster_interface::msg::RawBytesMsg>::SharedPtr recoveryStateSubscription;
     rclcpp::Publisher<booster_msgs::msg::RpcReqMsg>::SharedPtr modeQueryPublisher_;
     rclcpp::Subscription<booster_msgs::msg::RpcRespMsg>::SharedPtr locoApiResponseSubscription_;

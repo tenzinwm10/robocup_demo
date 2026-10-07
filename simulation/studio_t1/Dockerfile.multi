@@ -1,0 +1,4 @@
+FROM robocup-t1-demo:prepared
+COPY src/brain /source/src/brain
+RUN bash -lc 'source /opt/ros/kilted/setup.bash && source /work/install/setup.bash && colcon build --base-paths /source/src/brain --packages-select brain --build-base /work/build --install-base /work/install --cmake-args -DBUILD_TESTING=ON && ctest --test-dir /work/build/brain --output-on-failure -R "_test$"'
+ENTRYPOINT ["/bin/bash"]

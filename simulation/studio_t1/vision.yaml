@@ -1,0 +1,15 @@
+camera:
+  type: realsense
+  intrin:
+    fx: 216.48573063257084
+    fy: 216.48573063257084
+    cx: 160.0
+    cy: 120.0
+    distortion_model: 0
+    distortion_coeffs: [0.0, 0.0, 0.0, 0.0, 0.0]
+  extrin:
+    # Convert the runtime's MuJoCo camera axes to ROS optical axes (x, -y, -z).
+    - [0.0, 0.0, 1.0, 0.0613]
+    - [-1.0, 0.0, 0.0, 0.0]
+    - [0.0, -1.0, 0.0, 0.108]
+    - [0.0, 0.0, 0.0, 1.0]

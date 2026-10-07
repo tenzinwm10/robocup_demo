@@ -1,0 +1,5 @@
+FROM robocup-t2-studio:gpu-ready
+COPY src /source/src
+COPY simulation/studio_t1 /source/simulation/studio_t1
+RUN bash -lc 'source /opt/ros/kilted/setup.bash && source /work/install/setup.bash && colcon build --base-paths /source/src --packages-up-to brain vision --build-base /work/build --install-base /work/install --parallel-workers 1 --cmake-clean-cache --cmake-args -DCMAKE_CUDA_ARCHITECTURES=86 -DBUILD_CALIBRATION=OFF -DBUILD_TESTING=ON -DBUILD_TEST=ON && ctest --test-dir /work/build/brain --output-on-failure -R "_test$" && ctest --test-dir /work/build/vision --output-on-failure -R "utest_(utils|intrin|data_syncer)$"'
+ENTRYPOINT ["/bin/bash", "/source/simulation/studio_t1/start_multi.sh"]

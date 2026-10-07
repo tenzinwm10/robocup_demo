@@ -1,0 +1,19 @@
+# Only the simulated camera calibration differs from support_T2's vision.yaml.
+camera:
+  type: d-robotics
+  intrin:
+    fx: 216.4857306
+    fy: 216.4857306
+    cx: 160
+    cy: 120
+    distortion_model: 0
+    distortion_coeffs: []
+  extrin:
+    - [0.0, 0.0, 1.0, 0.0613]
+    - [-1.0, 0.0, 0.0, 0.0]
+    - [0.0, -1.0, 0.0, 0.108]
+    - [0.0, 0.0, 0.0, 1.0]
+detection_model:
+  model_path: /source/src/vision/model/T2_0804_digua.engine
+segmentation_model:
+  model_path: /source/src/vision/model/best_seg_orin_10.3.engine

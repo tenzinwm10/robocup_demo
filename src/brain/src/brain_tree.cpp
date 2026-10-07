@@ -3475,6 +3475,11 @@ NodeStatus TurnOnSpot::onRunning()
 NodeStatus SelfLocate::tick()
 {
     if (brain->isRecoveryLocalizationBlocked()) return NodeStatus::SUCCESS;
+    if (brain->get_parameter("simulation.studio_localization").as_bool() &&
+        brain->tree->getEntry<bool>("odom_calibrated") &&
+        brain->msecsSince(brain->data->lastSuccessfulLocalizeTime) < 1000.0) {
+        return NodeStatus::SUCCESS;
+    }
 
     const bool logSelfLocateDebug = brain->log->shouldLog(
         "self_locate_debug", brain->config->rerunLogDebugHz);
@@ -3659,6 +3664,11 @@ NodeStatus SelfLocate::tick()
 // SelfLocateEnterField automatically detects the left or right entry position.
 NodeStatus SelfLocateEnterField::tick()
 {
+    if (brain->get_parameter("simulation.studio_localization").as_bool() &&
+        brain->tree->getEntry<bool>("odom_calibrated") &&
+        brain->msecsSince(brain->data->lastSuccessfulLocalizeTime) < 1000.0) {
+        return NodeStatus::SUCCESS;
+    }
     if (brain->isRecoveryLocalizationBlocked() ||
         brain->isPostRecoveryHeadingRealignActive()) return NodeStatus::SUCCESS;
 

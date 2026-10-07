@@ -1,0 +1,4 @@
+ARG BASE_IMAGE=robocup-t2-studio:workstation
+FROM ${BASE_IMAGE}
+COPY simulation/studio_t1 /source/simulation/studio_t1
+ENTRYPOINT ["/bin/bash", "/source/simulation/studio_t1/start_multi.sh"]

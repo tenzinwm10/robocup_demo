@@ -45,6 +45,12 @@ Read `T2_COMPATIBILITY.md`, `WORKSTATION.md` and `OVERSIGHT.md` before running.
 
 ## Prepared binary handoff
 
+The complete binary/source handoff is published as a private GitHub release:
+https://github.com/tenzinwm10/robocup-t2-studio-handoff/releases/tag/workstation-2026-10-07
+Sign in to GitHub as `tenzinwm10`. Read its `START_HERE.md` for download,
+checksum verification, reassembly, Docker import and source extraction commands.
+The 7 GB Docker archive is split into four release assets, each below 2 GB.
+
 The laptop has `Downloads/robocup-t2-studio-handoff` containing `source.zip`,
 `docker-images.tar`, `manifest.json`, `validation.json` and `START_HERE.md`.
 Copy the whole directory via SSH or removable storage. The Docker archive is
@@ -71,7 +77,7 @@ The newer native T2 image is separately downloadable from Booster's registry.
 5. Start with one robot, then three players after transport and perception
    checks pass. Record actual scoring, match-state behavior and communications.
 
-SSH connection from the laptop to `fcisar@10.252.125.11` and
-`fcisar@10.183.160.135` failed; hostname `TUMWLAM-MLID190.local` did not resolve.
-No workstation jobs or transfers have been performed yet. Same-account login
-does not grant the laptop access to the Ubuntu shell.
+The user requested GitHub transfer instead of SSH. Continue locally on the
+Ubuntu workstation after downloading the private release. No workstation jobs
+have been run from the laptop. Same-account login does not grant the laptop
+access to the Ubuntu shell.

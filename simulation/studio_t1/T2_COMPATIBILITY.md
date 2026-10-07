@@ -75,6 +75,20 @@ Evidence: `logs/native-t2-095-humble-validation.json`,
 Image index digest:
 `sha256:aa40857c62a4b894f2ca415a0cec1842ce1f935bd32747697b8800d98b0e935f`.
 
+## Updated virtual robot image: 0.9.5-alpha-kilted
+
+The same stock T2 scene and canonical RPC motion probe also passed on the
+September 24 Kilted image. GetMode, walking-mode selection, head rotation and
+velocity commands returned status 0. The robot moved approximately 0.198 m
+over 3.088 simulation seconds and stayed upright (root height 0.963 to 0.969 m).
+
+Both valid stop-VisualKick versions returned 501, and a soccer-mode request
+again left GetMode at 2. The Kilted image therefore does not resolve the soccer
+controller gap. Its index digest is
+`sha256:1ce13d9d860c9b10ba7feb2a1b152613e70c29433c83e9f662173b6b5157449a`.
+Evidence: `logs/native-t2-095-kilted-motion.json`,
+`logs/native-t2-095-kilted-launch.log`, `logs/native-t2-095-kilted-controller.log`.
+
 ## Public GitHub controller resources
 
 Checked public branches, including `robocup_demo/sandbox/support_T2`,

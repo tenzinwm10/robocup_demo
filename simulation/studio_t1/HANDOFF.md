@@ -40,8 +40,10 @@ Read `T2_COMPATIBILITY.md`, `WORKSTATION.md` and `OVERSIGHT.md` before running.
   has no visual-kick module. Equivalent full T2 soccer motion is unresolved.
 - Booster publishes `t2_walk.pt` in `booster_deploy`; this is a low-level
   policy runner, not evidence of factory soccer RPC compatibility.
-- The newer Kilted image's T2 config also disables RoboCup; its live comparison
-  has not yet been completed. Do not claim it fixes VisualKick.
+- The newer Kilted image also passed walking/head/velocity tests with about
+  0.198 m of upright movement. It likewise returned 501 for both valid
+  VisualKick stop requests and stayed in mode 2 after soccer selection.
+  Switching ROS distributions does not fix the default soccer graph.
 
 ## Prepared binary handoff
 

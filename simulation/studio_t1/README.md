@@ -2,6 +2,10 @@
 
 **For the Linux/RTX 3070 workstation use [WORKSTATION.md](WORKSTATION.md).** It documents the portable images, canonical T2 RPC/sensor routes, isolated DDS domains, snapshot camera renderer, actual repository Vision mode, health checks and validation limits. The Windows instructions below describe the earlier development runs.
 
+The complete supported simulation plan is [WORKSTATION_PLAN.md](WORKSTATION_PLAN.md).
+It proceeds from one robot to three players and 3v3. Automatic VisualKick stays
+off because it is not available in the firmware and is outside this setup's scope.
+
 Communications and referee visibility are documented in [OVERSIGHT.md](OVERSIGHT.md), including the localhost dashboard and the important distinction between reported budgets and actual enforcement.
 
 ## Full 3v3 scene

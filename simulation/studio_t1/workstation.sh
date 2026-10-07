@@ -6,8 +6,33 @@ SOURCE_ROOT="$(cd -- "$HERE/../.." && pwd)"
 STUDIO_CONTAINER="${STUDIO_CONTAINER:-}"
 IMAGE="${IMAGE:-robocup-t2-studio:cpu-ready}"
 TASK_CONTAINER="robocup-t2-studio"
+CAMERA_CONTAINER="robocup-studio-cameras"
+UI_CONTAINER="robocup-communications-ui"
+
+# Check ownership before restarting any named helper. This also works after
+# Studio has closed: stopping the application must not require its namespace.
+assert_owned() {
+  [[ "$(docker inspect -f '{{index .Config.Labels "task"}}' "$1")" == "$2" ]] || {
+    echo "Container $1 is owned by another task." >&2; return 1;
+  }
+}
+remove_owned() {
+  if docker container inspect "$1" >/dev/null 2>&1; then
+    assert_owned "$1" "$2"
+    docker stop --timeout 30 "$1" >/dev/null
+    if docker container inspect "$1" >/dev/null 2>&1; then docker rm "$1" >/dev/null; fi
+  fi
+}
+stop_recorders() {
+  local recorder
+  while IFS= read -r recorder; do
+    [[ -z "$recorder" ]] || remove_owned "$recorder" robocup-studio-record
+  done < <(docker ps -a --filter label=task=robocup-studio-record --format '{{.Names}}')
+}
 command="${1:-status}"; shift || true
-if [[ -z "$STUDIO_CONTAINER" && "$command" != test && "$command" != gpu-check && "$command" != oversight && "$command" != oversight-stop ]]; then
+needs_studio=false
+case "$command" in install|start|match-start|match-end|cameras|status|record) needs_studio=true ;; esac
+if [[ -z "$STUDIO_CONTAINER" ]] && $needs_studio; then
   mapfile -t candidates < <(docker ps --format '{{.Names}} {{.Image}}' | awk '/virtual-robot\/virtual-robot/ {print $1}')
   if [[ ${#candidates[@]} != 1 ]]; then
     echo 'Set STUDIO_CONTAINER to the one T1 virtual-robot container opened by Studio.' >&2; exit 2
@@ -37,9 +62,10 @@ case "$command" in
       /tmp/fcisar-studio-command.py switch_scene '{"scene_key":"fcisar_t1_robo_league_3v3"}'
     ;;
   start)
-    if docker container inspect "$TASK_CONTAINER" >/dev/null 2>&1; then
-      [[ "$(docker inspect -f '{{index .Config.Labels "task"}}' "$TASK_CONTAINER")" == 'robocup-t2-studio' ]] || { echo 'Container name is owned by another task.' >&2; exit 1; }
-      docker rm -f "$TASK_CONTAINER" >/dev/null
+    remove_owned "$TASK_CONTAINER" robocup-t2-studio
+    if [[ -f "$HERE/logs/workstation/run.json" ]]; then
+      mkdir -p "$HERE/logs/runs"
+      cp -a "$HERE/logs/workstation" "$HERE/logs/runs/$(date -u +%Y%m%dT%H%M%S)-$$"
     fi
     mkdir -p "$HERE/logs/workstation"
     gpu_args=()
@@ -60,22 +86,38 @@ case "$command" in
     ;;
   cameras)
     [[ -n "${STUDIO_LIBRARY:-}" ]] || { echo 'Set STUDIO_LIBRARY first.' >&2; exit 2; }
+    remove_owned "$CAMERA_CONTAINER" robocup-studio-cameras
+    mkdir -p "$HERE/logs/workstation/cameras"
     # A separate renderer has NVIDIA exposure even when Studio created its
     # managed T1 container without GPU flags. It only reads physics snapshots.
-    docker run --rm --name robocup-studio-cameras --label task=robocup-studio-cameras \
+    docker run --rm --name "$CAMERA_CONTAINER" --label task=robocup-studio-cameras \
       --gpus all --network "container:$STUDIO_CONTAINER" \
       --mount "type=bind,source=$STUDIO_LIBRARY,target=/opt/booster-studio/library,readonly" \
-      robocup-t2-studio:renderer "$@"
+      --mount "type=bind,source=$SOURCE_ROOT,target=/source,readonly" \
+      --mount "type=bind,source=$HERE/logs/workstation/cameras,target=/work/camera-logs" \
+      robocup-t2-studio:renderer --health /work/camera-logs/health.json "$@" \
+      2>&1 | tee "$HERE/logs/workstation/cameras/renderer.log"
     ;;
+  cameras-stop) remove_owned "$CAMERA_CONTAINER" robocup-studio-cameras ;;
   stop)
-    if docker container inspect "$TASK_CONTAINER" >/dev/null 2>&1; then
-      [[ "$(docker inspect -f '{{index .Config.Labels "task"}}' "$TASK_CONTAINER")" == 'robocup-t2-studio' ]] || exit 1
-      docker stop "$TASK_CONTAINER"
-    fi
+    remove_owned "$TASK_CONTAINER" robocup-t2-studio
+    ;;
+  stop-all)
+    stop_recorders
+    remove_owned "$TASK_CONTAINER" robocup-t2-studio
+    remove_owned "$CAMERA_CONTAINER" robocup-studio-cameras
+    remove_owned "$UI_CONTAINER" robocup-communications-ui
     ;;
   oversight)
     mkdir -p "$HERE/logs/workstation"
-    docker run -d --name robocup-communications-ui --label task=robocup-communications-ui \
+    if docker container inspect "$UI_CONTAINER" >/dev/null 2>&1; then
+      assert_owned "$UI_CONTAINER" robocup-communications-ui
+      if [[ "$(docker inspect -f '{{.State.Running}}' "$UI_CONTAINER")" == true ]]; then
+        echo 'Read-only oversight: http://127.0.0.1:8768'; exit 0
+      fi
+      remove_owned "$UI_CONTAINER" robocup-communications-ui
+    fi
+    docker run -d --name "$UI_CONTAINER" --label task=robocup-communications-ui \
       -p 127.0.0.1:8768:8768 \
       --mount "type=bind,source=$SOURCE_ROOT,target=/source,readonly" \
       --mount "type=bind,source=$HERE/logs/workstation,target=/work/studio-logs,readonly" \
@@ -84,8 +126,10 @@ case "$command" in
     echo 'Read-only oversight: http://127.0.0.1:8768'
     ;;
   oversight-stop)
-    [[ "$(docker inspect -f '{{index .Config.Labels "task"}}' robocup-communications-ui)" == 'robocup-communications-ui' ]] || exit 1
-    docker rm -f robocup-communications-ui
+    remove_owned "$UI_CONTAINER" robocup-communications-ui
+    ;;
+  ready)
+    docker exec "$TASK_CONTAINER" python3 /source/simulation/studio_t1/check_health.py "$@"
     ;;
   status)
     docker exec "$STUDIO_CONTAINER" curl -fsS --max-time 5 http://127.0.0.1:38383/health
@@ -94,20 +138,40 @@ case "$command" in
     ;;
   test)
     docker run --rm --mount "type=bind,source=$SOURCE_ROOT,target=/source,readonly" --entrypoint bash "$IMAGE" -lc \
-      'source /opt/ros/kilted/setup.bash; source /work/install/setup.bash; ctest --test-dir /work/build/brain --output-on-failure -R "_test$" && python3 /source/simulation/studio_t1/test_bridge.py && python3 /source/simulation/studio_t1/test_transport.py && python3 /source/simulation/studio_t1/test_brain_isolation.py && python3 /source/simulation/studio_t1/test_prepare.py && python3 /source/simulation/studio_t1/test_oversight.py && python3 /source/simulation/studio_t1/test_observer_live.py'
+      'source /opt/ros/kilted/setup.bash; source /work/install/setup.bash; ctest --test-dir /work/build/brain --output-on-failure -R "_test$" && python3 /source/simulation/studio_t1/test_bridge.py && python3 /source/simulation/studio_t1/test_transport.py && python3 /source/simulation/studio_t1/test_brain_isolation.py && python3 /source/simulation/studio_t1/test_prepare.py && python3 /source/simulation/studio_t1/test_oversight.py && python3 /source/simulation/studio_t1/test_observer_live.py && python3 /source/simulation/studio_t1/test_health.py && python3 /source/simulation/studio_t1/test_workstation.py && python3 /source/simulation/studio_t1/test_multi_launch.py'
     ;;
   gpu-check)
     nvidia-smi
-    docker run --rm --gpus all --entrypoint bash robocup-t2-studio:gpu-ready \
+    gpu_check_image="${GPU_CHECK_IMAGE:-robocup-t2-studio:gpu-ready}"
+    docker run --rm --gpus all --mount "type=bind,source=$SOURCE_ROOT,target=/source,readonly" \
+      --entrypoint bash "$gpu_check_image" \
       /source/simulation/studio_t1/check_gpu.sh
     ;;
   record)
     domain="${1:-11}"
-    [[ "$domain" =~ ^[0-9]+$ ]] || { echo 'record argument must be an application DDS domain.' >&2; exit 2; }
+    [[ "$domain" =~ ^[0-9]+$ ]] && ((10#$domain <= 232)) || { echo 'record argument must be a DDS domain from 0 through 232.' >&2; exit 2; }
+    domain="$((10#$domain))"
+    recorder="robocup-studio-record-$domain"
+    if docker container inspect "$recorder" >/dev/null 2>&1; then
+      assert_owned "$recorder" robocup-studio-record
+      if [[ "$(docker inspect -f '{{.State.Running}}' "$recorder")" == true ]]; then
+        echo "Recording is already active for domain $domain." >&2; exit 2
+      fi
+      remove_owned "$recorder" robocup-studio-record
+    fi
     mkdir -p "$HERE/logs/bags"
-    docker run --rm --network "container:$STUDIO_CONTAINER" -e "ROS_DOMAIN_ID=$domain" \
+    docker run --rm --name "$recorder" --label task=robocup-studio-record \
+      --stop-signal SIGINT --stop-timeout 30 \
+      --network "container:$STUDIO_CONTAINER" -e "ROS_DOMAIN_ID=$domain" \
       --mount "type=bind,source=$HERE/logs/bags,target=/records" --entrypoint bash "$IMAGE" -lc \
-      'source /opt/ros/kilted/setup.bash; source /work/install/setup.bash; ros2 bag record -o "/records/domain-${ROS_DOMAIN_ID}-$(date +%Y%m%d-%H%M%S)" /clock /boostercamera/head/rgb /boostercamera/head/depth /boostercamera/head/rgb/camera_info /head_pose_stamped /odometer_state /low_state /booster_vision/detection /booster_vision/line_segments /robocup/game_controller /LocoApiTopicReq /LocoApiTopicResp /simulation/ground_truth/robot_pose'
+      'source /opt/ros/kilted/setup.bash; source /work/install/setup.bash; exec ros2 bag record -o "/records/domain-${ROS_DOMAIN_ID}-$(date +%Y%m%d-%H%M%S)" /clock /boostercamera/head/rgb /boostercamera/head/depth /boostercamera/head/rgb/camera_info /head_pose_stamped /odometer_state /low_state /booster_vision/detection /booster_vision/line_segments /robocup/game_controller /LocoApiTopicReq /LocoApiTopicResp /simulation/ground_truth/robot_pose'
     ;;
-  *) echo 'Commands: install cameras start stop status oversight oversight-stop test gpu-check match-start match-end record [domain]' >&2; exit 2 ;;
+  record-stop)
+    if [[ -n "${1:-}" ]]; then
+      [[ "$1" =~ ^[0-9]+$ ]] && ((10#$1 <= 232)) || { echo 'record-stop argument must be a DDS domain from 0 through 232.' >&2; exit 2; }
+      domain="$((10#$1))"
+      remove_owned "robocup-studio-record-$domain" robocup-studio-record
+    else stop_recorders; fi
+    ;;
+  *) echo 'Commands: install cameras cameras-stop start ready stop stop-all status oversight oversight-stop test gpu-check match-start match-end record [domain] record-stop [domain]' >&2; exit 2 ;;
 esac

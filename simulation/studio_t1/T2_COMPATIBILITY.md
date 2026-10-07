@@ -1,5 +1,11 @@
 # Native T2 compatibility investigation
 
+This records the earlier native-body investigation. The current implementation
+scope is the existing supported RoboCup demo simulation; VisualKick is absent
+from the firmware and excluded from acceptance. Walking, velocity and head
+control are the supported motion baseline. Follow
+[WORKSTATION_PLAN.md](WORKSTATION_PLAN.md) for current completion criteria.
+
 Tested 2026-10-07 using Studio 1.12.7, its native simulator source and built-in
 `football_pitch_T2.bscene`. Upstream `sandbox/support_T2` still resolves to
 `2d56d3622ac6dbfdbda96d27a2042eb543f199ae`.
@@ -107,7 +113,7 @@ documents factory T2 soccer mode as disabled and VisualKick as dependent on the
 installed motion graph. This describes those published/default configurations,
 not the capabilities of the user's already-verified physical T2 soccer firmware.
 
-The correct remaining dependency for equivalent soccer behavior is a T2
-competition-compatible simulator firmware/controller bundle, including its
-RoboCup graph and kick policies. No substitute kick policy or invented success
-response has been added.
+Equivalent future factory soccer motions would require a compatible simulator
+controller bundle with those policies. That is outside the current supported
+simulation scope and does not block this setup. No substitute kick policy or
+invented success response has been added.

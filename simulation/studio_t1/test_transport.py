@@ -1,6 +1,8 @@
 """DDS integration tests with synthetic Studio endpoints, no simulator/GPU needed."""
 import copy
 import json
+from pathlib import Path
+import tempfile
 import time
 import unittest
 from rclpy.context import Context
@@ -15,6 +17,7 @@ from vision_interface.msg import Detections, LineSegments
 from game_controller_interface.msg import GameControlData
 from t2_adapter import T2Adapter
 from t2_routes import SENSOR_ROUTES, RpcReqMsg, RpcRespMsg, Clock
+from check_health import health_failures, required_streams
 
 
 class TransportTests(unittest.TestCase):
@@ -51,6 +54,100 @@ class TransportTests(unittest.TestCase):
             for executor in self.executors: executor.spin_once(timeout_sec=0.002)
             if condition(): return
         self.fail('DDS delivery timed out')
+
+    def test_adapter_readiness_from_live_synthetic_peers(self):
+        # Exercise the persisted telemetry from real DDS callbacks, including
+        # canonical outputs that the adapter observes on its application domain.
+        # GetMode is a supported, read-only RPC; no motion or simulator is used.
+        with tempfile.TemporaryDirectory() as directory:
+            contexts, nodes, executors = [], [], []
+            adapter = None
+            try:
+                for domain in (75, 76):
+                    context = Context(); context.init(args=[], domain_id=domain)
+                    contexts.append(context)
+                    node = Node(f'health_fixture_{domain}', context=context)
+                    nodes.append(node)
+                    executor = SingleThreadedExecutor(context=context); executor.add_node(node)
+                    executors.append(executor)
+                report_path = Path(directory)/'robot3-transport.json'
+                adapter = T2Adapter('robot3', 75, 76, health_path=str(report_path))
+                inputs = []
+                needed = {topic for _, topic in required_streams('robot3', 'ideal')}
+                for suffix, _, message_type in SENSOR_ROUTES:
+                    topic = '/robot3'+suffix
+                    if topic not in needed:
+                        continue
+                    message = message_type()
+                    if hasattr(message, 'encoding'):
+                        message.height = 1; message.width = 2
+                        message.encoding = '32FC1' if 'depth' in suffix else 'rgb8'
+                        message.step = 8 if 'depth' in suffix else 6
+                        message.data = [0, 0, 128, 63]*2 if 'depth' in suffix else [1, 2, 3, 4, 5, 6]
+                    inputs.append((nodes[0].create_publisher(message_type, topic, qos_profile_sensor_data), message))
+                head = PoseStamped(); head.pose.orientation.w = 1.0
+                inputs.append((nodes[0].create_publisher(PoseStamped, '/robot3/head_pose_stamped',
+                                                       qos_profile_sensor_data), head))
+                inputs.append((nodes[0].create_publisher(Pose2D, '/robot3/soccer/sim/localization/robot_pose',
+                                                       qos_profile_sensor_data), Pose2D(x=1., y=2., theta=0.)))
+                inputs.append((nodes[0].create_publisher(Detection2DArray, '/robot3/soccer/sim/vision/detections',
+                                                       qos_profile_sensor_data), Detection2DArray()))
+                players = [{'penalty': 'NONE', 'secsTillUnpenalised': 0, 'warnings': 0, 'cautions': 0}
+                           for _ in range(20)]
+                team = {'teamNumber': 1, 'fieldPlayerColour': 1, 'goalkeeperColour': 0,
+                        'goalkeeper': 1, 'score': 0, 'penaltyShot': 0, 'singleShots': 0,
+                        'messageBudget': 12000, 'players': players}
+                referee = {'version': 19, 'packetNumber': 3, 'playersPerTeam': 3,
+                           'competitionType': 'LARGE', 'stopped': False, 'gamePhase': 'NORMAL',
+                           'state': 'INITIAL', 'setPlay': 'NONE', 'firstHalf': True,
+                           'kickingTeam': 1, 'secsRemaining': 600, 'secondaryTime': 0,
+                           'teams': [team, {**team, 'teamNumber': 2}]}
+                inputs.append((nodes[0].create_publisher(String, '/soccer/game_controller', 10),
+                               String(data=json.dumps(referee))))
+                clock_pub = nodes[0].create_publisher(Clock, '/clock', qos_profile_sensor_data)
+                request_pub = nodes[1].create_publisher(RpcReqMsg, '/LocoApiTopicReq', 10)
+                response_pub = nodes[0].create_publisher(RpcRespMsg, '/LocoApiTopic/robot3Resp', 10)
+                requests, replies = [], []
+                def respond(message):
+                    requests.append(message)
+                    response_pub.publish(RpcRespMsg(uuid=message.uuid, header='{"status":0}', body='{"mode":2}'))
+                request_sub = nodes[0].create_subscription(RpcReqMsg, '/LocoApiTopic/robot3Req', respond, 10)
+                response_sub = nodes[1].create_subscription(RpcRespMsg, '/LocoApiTopicResp', replies.append, 10)
+                started_at = time.time()
+                run = {'robots': ['robot3'], 'started_at': started_at, 'localization': 'ideal'}
+                request = RpcReqMsg(uuid='health-getmode', header='{"api_id":2017,"expect_response":true}', body='')
+                deadline, next_publish, tick, persisted = time.monotonic()+12, 0, 0, None
+                while time.monotonic() < deadline:
+                    if time.monotonic() >= next_publish:
+                        tick += 1
+                        clock = Clock(); clock.clock.sec = tick
+                        clock_pub.publish(clock)
+                        for publisher, message in inputs:
+                            publisher.publish(message)
+                        request_pub.publish(request)
+                        next_publish = time.monotonic()+0.1
+                    adapter.spin_once()
+                    for executor in executors:
+                        executor.spin_once(timeout_sec=0.002)
+                    if report_path.exists():
+                        persisted = json.loads(report_path.read_text())
+                        if not health_failures(run, {'robot3': persisted}):
+                            break
+                self.assertIsNotNone(persisted, 'Adapter did not persist a health report')
+                self.assertEqual(health_failures(run, {'robot3': persisted}), [], persisted)
+                for _, topic in required_streams('robot3', 'ideal'):
+                    self.assertGreaterEqual(persisted['last_received_at'][topic], started_at, topic)
+                self.assertGreaterEqual(persisted['clock']['last_advanced_at'], started_at)
+                self.assertEqual(persisted['last_successful_rpc']['api'], 2017)
+                self.assertTrue(requests and replies)
+                self.assertEqual(serialize_message(requests[-1]), serialize_message(request))
+                self.assertEqual(replies[-1].header, '{"status":0}')
+                self.assertEqual(replies[-1].body, '{"mode":2}')
+            finally:
+                if adapter: adapter.close()
+                for executor in executors: executor.shutdown()
+                for node in nodes: node.destroy_node()
+                for context in contexts: context.shutdown()
 
     def test_rpc_payloads_and_robot_isolation(self):
         # Includes mode, move, head, GetUp, GetMode, Shoot, VisualKick and trajectory APIs.

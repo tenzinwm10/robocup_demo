@@ -1,5 +1,9 @@
 # Linux / RTX 3070 handoff
 
+Follow [WORKSTATION_PLAN.md](WORKSTATION_PLAN.md) for ordered setup, one robot,
+three-player and 3v3 acceptance gates. VisualKick is excluded from the supported
+simulation scope; use the default `t1-safe` motion profile.
+
 This runs the `BoosterRobotics/robocup_demo` `sandbox/support_T2` source at commit `2d56d3622ac6dbfdbda96d27a2042eb543f199ae`. `robot_client.cpp`, the SDK API IDs, RPC message schema, team protocol and `game.xml` behavior tree are unchanged. The optional source changes are localized to Studio field-pose ingestion and localization guards, defaulting off. T1 geometry/camera calibration, field size, robot identities and simulation speed limits live in a separate launch profile.
 
 ## Transfer and start
@@ -48,19 +52,42 @@ IMAGE=robocup-t2-studio:gpu-ready bash workstation.sh start \
   --robots robot2
 ```
 
-After that one instance is healthy, omit `--robots robot2` to launch all six. There is no ideal-detection or field-pose injection into the brain in this mode; ground truth remains on a separate diagnostic topic. `--perception external --localization ideal` tests real perception with exact localization. `--perception ideal --localization visual` tests localization against Studio's ideal object/line observations.
+After that one instance is healthy, repeat with `--robots robot1 robot2 robot3`.
+Only after the three-player gate passes, select all six. Restart the renderer
+with the same selection at each stage. There is no ideal-detection or field-pose
+injection into the brain in external/visual mode; ground truth remains on a
+separate diagnostic topic. `--perception external --localization ideal` tests
+real perception with exact localization. `--perception ideal --localization visual`
+tests localization against Studio's ideal object/line observations.
 
-The launcher refuses to start a match until fresh per-robot health reports show camera, head pose, state, perception, referee and native RPC replies. For visual localization, also inspect the brain's calibrated pose and compare it with the diagnostic ground truth before relying on a match. GPU inference errors stop the supervised brain processes; they are not replaced by ideal detections.
+Use `bash workstation.sh ready` before a match. The updated readiness gate
+checks required stream receipt ages, depth, advancing simulation clock and
+successful correlated native RPC replies. `match-start` runs the same gate.
+For visual localization, also inspect the brain's calibrated pose and compare
+it with diagnostic ground truth. GPU inference errors stop the supervised
+brain processes; they are not replaced by ideal detections.
 
-`--motion-profile t1-safe` is the default and disables automatic VisualKick while applying T1 speed limits. `--motion-profile t2-api` restores the repository's automatic VisualKick setting; it does not make the stock T1 controller implement T2-only motion APIs. Unsupported native responses remain visible to the brain.
+`--motion-profile t1-safe` is the supported profile. It disables automatic
+VisualKick while applying the existing T1 simulation speed limits. The launcher
+does not expose the former `t2-api` profile that enabled unavailable motions.
+Native RPC payloads and unsupported responses still reach the brain unchanged.
 
 ```bash
 bash workstation.sh record 12  # robot2's application domain
 bash workstation.sh match-end
-bash workstation.sh stop
+bash workstation.sh record-stop
+bash workstation.sh stop-all
 ```
 
 Recording captures canonical sensor/perception/RPC/referee topics and separate ground truth. Replay a bag into an otherwise idle application domain, with simulation time enabled; stop the live adapter for that domain to avoid duplicate clock and sensor publishers. Use `ros2 bag play <bag> --clock` only if not replaying its recorded `/clock` topic as well.
+
+`stop` stops the strategy only; `cameras-stop` stops the renderer and
+`record-stop [domain]` flushes a selected recorder (all recorders if omitted).
+`stop-all` stops these helpers plus the oversight UI without stopping Studio.
+Stopping helpers does not require a running Studio container. Repeating
+`oversight` reuses its running UI. Previous strategy logs are copied to
+`logs/runs/` before a new strategy run starts. Renderer health/logs persist in
+`logs/workstation/cameras/`.
 
 To iterate on perception/localization, edit the transferred source and rebuild from the repository root using the included GPU development image:
 
@@ -70,6 +97,11 @@ IMAGE=robocup-t2-studio:edited bash simulation/studio_t1/workstation.sh test
 ```
 
 When launching that edited image, pass GPU access by tagging it with a name ending in `:gpu-ready` or set `GPU_ENABLED=1`. Re-run the one-robot model/camera/localization checks before scaling the edited stack.
+
+To run the model probe with an edited runtime, use
+`GPU_CHECK_IMAGE=robocup-t2-studio:edited bash workstation.sh gpu-check`.
+The probe and renderer mount the current source instead of reading stale
+launcher/model files baked into the original image.
 
 ## Exact application routes
 

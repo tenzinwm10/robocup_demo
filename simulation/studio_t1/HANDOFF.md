@@ -7,6 +7,11 @@ Upstream: `BoosterRobotics/robocup_demo`, `sandbox/support_T2`, commit
 
 ## User objective and constraints
 
+**Current scope:** finish the supported `sandbox/support_T2` simulation.
+VisualKick is not available in the user's firmware and is outside acceptance.
+Keep automatic VisualKick disabled; its absence does not block this setup.
+Follow [WORKSTATION_PLAN.md](WORKSTATION_PLAN.md) for the complete staged plan.
+
 Run the full soccer demo using Booster Studio built-in simulation, referee and
 gameplay features on Ubuntu with an NVIDIA RTX 3070. Use the existing T2 brain,
 perception models, behavior tree and robot API/RPC routes. The field may be
@@ -49,8 +54,10 @@ Read `T2_COMPATIBILITY.md`, `WORKSTATION.md` and `OVERSIGHT.md` before running.
 
 The complete binary/source handoff is published as a private GitHub release:
 https://github.com/tenzinwm10/robocup-t2-studio-handoff/releases/tag/workstation-2026-10-07
-Sign in to GitHub as `tenzinwm10`. Read its `START_HERE.md` for download,
-checksum verification, reassembly, Docker import and source extraction commands.
+Sign in to GitHub as `tenzinwm10`. Read `SUPPORTED_START_HERE.md` and use
+`source-supported.zip` for the current launcher and plan. Its
+`SUPPORTED_SHA256SUMS` verifies the new source/evidence and the same original
+Docker parts. The earlier `START_HERE.md` and `source.zip` remain as a snapshot.
 The 7 GB Docker archive is split into four release assets, each below 2 GB.
 
 The laptop has `Downloads/robocup-t2-studio-handoff` containing `source.zip`,
@@ -73,11 +80,12 @@ The newer native T2 image is separately downloadable from Booster's registry.
 2. Copy/import the handoff, verify its manifest hashes, and read the launch docs.
 3. Run GPU model-load and isolated camera/perception/localization checks before
    launching a match. Preserve the branch's actual TensorRT models.
-4. Verify native T2 controller capabilities against the canonical RPC payloads
-   using the included probe scripts. Obtain a compatible simulator soccer
-   firmware bundle if the public graph still lacks those motions.
-5. Start with one robot, then three players after transport and perception
-   checks pass. Record actual scoring, match-state behavior and communications.
+4. Validate supported walking, head and velocity commands through the native
+   RPC routes. Keep automatic VisualKick off; no new soccer firmware is needed
+   to complete the supported simulation baseline.
+5. Start with one robot, then three players and finally all six after transport
+   and perception checks pass. Record referee scoring/state behavior,
+   communications, resource usage and repeatable startup/shutdown.
 
 The user requested GitHub transfer instead of SSH. Continue locally on the
 Ubuntu workstation after downloading the private release. No workstation jobs

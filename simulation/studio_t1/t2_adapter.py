@@ -20,6 +20,7 @@ from bridge import StudioBridge, parse_referee_json
 from t2_routes import SENSOR_ROUTES, Clock, RpcReqMsg, RpcRespMsg, rpc_topics, RPC_REQUEST, RPC_RESPONSE
 from oversight_metrics import RPCMetrics
 from event_log import EventLog
+from check_health import note_received, note_clock, note_rpc_response
 
 
 class T2Adapter:
@@ -49,10 +50,17 @@ class T2Adapter:
                       'localization': localization, 'received': {}, 'referee_errors': 0}
         self.last_write = 0
         from vision_interface.msg import Detections
+        from geometry_msgs.msg import PoseStamped, Pose2D
         def perception(message):
-            key = '/booster_vision/detection'
-            self.health['received'][key] = self.health['received'].get(key, 0)+1
+            note_received(self.health, '/booster_vision/detection')
         self.entities.append(self.agent.create_subscription(Detections, '/booster_vision/detection', perception, 10))
+        # Observe the canonical outputs after the bridge's timestamp/pose handling.
+        # This records liveness without changing any payload or publisher route.
+        self.entities.append(self.agent.create_subscription(PoseStamped, '/head_pose_stamped',
+            lambda message: note_received(self.health, '/head_pose_stamped'), 10))
+        if localization == 'ideal':
+            self.entities.append(self.agent.create_subscription(Pose2D, '/soccer/sim/localization/robot_pose',
+                lambda message: note_received(self.health, '/soccer/sim/localization/robot_pose'), 10))
         prefix = f'/{robot}' if robot else ''
         for suffix, target, message_type in SENSOR_ROUTES:
             self.forward(self.sim, self.agent, message_type, prefix+suffix, target,
@@ -74,12 +82,16 @@ class T2Adapter:
         publisher = target_node.create_publisher(message_type, target, target_qos or qos)
         def callback(message):
             publisher.publish(message)
-            self.health['received'][source] = self.health['received'].get(source, 0)+1
+            if message_type == Clock:
+                note_clock(self.health, message.clock.sec*1_000_000_000+message.clock.nanosec)
+            else:
+                note_received(self.health, source)
             if message_type == RpcReqMsg:
                 event = self.rpc.request(message)
                 if self.rpc_events and event and event['api'] in (2000, 2008, 2024, 2038, 2047): self.rpc_events.emit(event)
             elif message_type == RpcRespMsg:
                 event = self.rpc.response(message)
+                note_rpc_response(self.health, event)
                 if self.rpc_events and event['status'] != 0: self.rpc_events.emit(event)
         self.entities.extend([publisher, source_node.create_subscription(message_type, source, callback, qos)])
 
@@ -91,6 +103,7 @@ class T2Adapter:
             self.sim.get_logger().error(f'Invalid referee: {error}')
             return
         self.referee_pub.publish(message)
+        note_received(self.health, '/soccer/game_controller')
         self.health['referee_state'] = message.state
         self.health['score'] = [team.score for team in message.teams]
 
